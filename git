@@ -2,19 +2,17 @@
 
 set -e
 
-# Prefix for echo
-PRE="[git-wrapper]"
-
 GIT_OPTS=("-C" "-c" "--help" "--version" "--exec-path" "--html-path" "--man-path"
           "--info-path" "-p" "--paginate" "--no-pager" "--no-replace-objects"
           "--bare" "--git-dir" "--work-tree" "--namespace")
 
+# TODO: convert to .gitwrapignore file
 # add commands here to intentionally suppress wrapping
 IGNORE_CMDS=("commit" "pull"
           "add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
           "add--interactive" "count-objects" "grep" "merge-recursive" "remote-ext" "stage"
           "am" "credential" "hash-object" "merge-resolve" "remote-fd" "stash"
-          "annotate" "credential-cache" "help" "merge-subtree" "remote-ftp" "status"
+          "annotate" "credential-cache" "help" "merge-subtree" "remote-ftp"
           "apply" "credential-cache--daemon" "http-backend" "merge-tree" "remote-ftps" "stripspace"
           "archive" "credential-store" "http-fetch" "mergetool" "remote-http" "submodule"
           "bisect" "daemon" "http-push" "mktag" "remote-https" "submodule--helper"
@@ -63,22 +61,12 @@ function get_command {
     done
     # with that out of the way, we're now scrutinizing the current command
     local currentcmd="$1"
-    
-    # if the param is a command we want to wrap, echo it, return.
-    for wrapcmd in "${WRAP_CMDS[@]}"; do
-        if [ "$wrapcmd" == "$currentcmd" ]; then
-            echo "$currentcmd"
-            return
-        fi
-    done
-    
-    # abort if the param is anything we are ignoring.
-    # this is a blacklist to deliberately stop further processing, and force $COMMAND to be empty.
-    for ignorecmd in "${IGNORE_CMDS[@]}"; do
-        if [ "$ignorecmd" == "$currentcmd" ]; then
-            return
-        fi
-    done
+
+    # if directory exists, echo to set $COMMAND
+    if [ -d "$hooksdir/$currentcmd" ]; then
+        echo "$currentcmd"
+        return
+    fi
  
     # If not found, look up command in git alias
     # This alias-proofs the git-wrapper, invoking pre and post commands based on the intended git command
@@ -99,7 +87,8 @@ function get_command {
 function run_commands {
     sequence=$1
     shift
-    local path="$WRAPHOOKS/$COMMAND/$sequence"
+
+    local path="$hooksdir/$COMMAND/$sequence"
 
     if [ ! -d "$path" ]; then
         #echo "no $sequence directory found for $COMMAND"
@@ -113,6 +102,14 @@ function run_commands {
         #echo "git-wrapper err: $sequence script(s) missing for $COMMAND"
         return
     fi
+
+    # abort if the command is in the $IGNORE_CMDS array
+    for ignorecmd in "${IGNORE_CMDS[@]}"; do
+        if [ "$ignorecmd" == "$COMMAND" ]; then
+            echo "[git-wrapper] deliberately ignoring ${COMMAND}/${sequence} scripts, see \$IGNORE_CMDS"
+            return
+        fi
+    done
 
     # run found scripts
     for script in "${SCRIPTS[@]}"; do
@@ -134,9 +131,9 @@ fi
 
 # get paths for dynamic loading
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-WRAPHOOKS="${DIR}/hooks"
+hooksdir="${DIR}/hooks"
 # Commands we want to wrap. Do not include aliases, use their root/intended git command instead.
-mapfile -d $'\0' WRAP_CMDS < <(find "$WRAPHOOKS" -mindepth 1 -maxdepth 1 -type d -printf '%f\0')
+mapfile -d $'\0' WRAP_CMDS < <(find "$hooksdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\0')
 #echo "${WRAP_CMDS[*]}"
 
 # Fetch the command if it is in the $WRAP_CMDS list
