@@ -9,9 +9,6 @@ GIT_OPTS=("-C" "-c" "--help" "--version" "--exec-path" "--html-path" "--man-path
           "--info-path" "-p" "--paginate" "--no-pager" "--no-replace-objects"
           "--bare" "--git-dir" "--work-tree" "--namespace")
 
-# Commands we want to wrap. Do not include aliases, use their root/intended git command instead.
-WRAP_CMDS=("checkout")
-
 # add commands here to intentionally suppress wrapping
 IGNORE_CMDS=("commit" "pull"
           "add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
@@ -103,26 +100,26 @@ function run_commands {
     sequence=$1
     shift
     local path="$WRAPHOOKS/$COMMAND/$sequence"
+
     if [ ! -d "$path" ]; then
+        #echo "no $sequence directory found for $COMMAND"
         return
     fi
 
     # https://stackoverflow.com/a/23357277
     mapfile -d $'\0' SCRIPTS < <(find "$path" -mindepth 1 -maxdepth 1 -name '*.sh' -type f -print0)
 
+    if [ ${#SCRIPTS[@]} -eq 0 ]; then
+        #echo "git-wrapper err: $sequence script(s) missing for $COMMAND"
+        return
+    fi
+
+    # run found scripts
     for script in "${SCRIPTS[@]}"; do
-        echo "(placeholder) running $sequence script: '$script'"
+        #echo "running ${sequence}-command script: '$script'"
         #eval "$script $@"
         bash -c "$script $@"
     done
-}
-
-function pre_command {
-    run_commands "pre" "$@"
-}
-
-function post_command {
-    run_commands "post" "$@"
 }
 
 
@@ -138,6 +135,9 @@ fi
 # get paths for dynamic loading
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WRAPHOOKS="${DIR}/hooks"
+# Commands we want to wrap. Do not include aliases, use their root/intended git command instead.
+mapfile -d $'\0' WRAP_CMDS < <(find "$WRAPHOOKS" -mindepth 1 -maxdepth 1 -type d -printf '%f\0')
+#echo "${WRAP_CMDS[*]}"
 
 # Fetch the command if it is in the $WRAP_CMDS list
 # TODO Remove this global variable
@@ -145,6 +145,7 @@ COMMAND="$(get_command "$@")"
 
 run_commands "pre" "$@"
 
+#echo "Running: '$GIT $@'"
 "$GIT" "$@"
 rc="$?"
 if [ "$rc" != "0" ]; then
