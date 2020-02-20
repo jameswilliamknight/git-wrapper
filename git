@@ -7,6 +7,8 @@ GIT_OPTS=("-C" "-c" "--help" "--version" "--exec-path" "--html-path" "--man-path
           "--bare" "--git-dir" "--work-tree" "--namespace")
 
 # TODO: convert to .gitwrapignore file
+#       remove basically everything, this will become a blacklist in .gitwrapignore
+#
 # add commands here to intentionally suppress wrapping
 IGNORE_CMDS=("commit" "pull"
           "add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
@@ -40,10 +42,10 @@ IGNORE_CMDS=("commit" "pull"
 function get_command {
     # `shift` past params which are git options
     for opt in "${GIT_OPTS[@]}"; do
-	#
-	# if the current array element of GIT_OPTS doesn't match the first param without a `=value`
-	local first_param_name="${1%=*}"
-	if [ "$first_param_name" != "$opt" ]; then
+        #
+        # if the current array element of GIT_OPTS doesn't match the first param without a `=value`
+        local first_param_name="${1%=*}"
+        if [ "$first_param_name" != "$opt" ]; then
             continue # restart loop with next GIT_OPTS item
         fi
         # The first param belongs to the GIT_OPTS collection.
@@ -62,12 +64,12 @@ function get_command {
     # with that out of the way, we're now scrutinizing the current command
     local currentcmd="$1"
 
-    # if directory exists, echo to set $COMMAND
+    # if directory exists that matches $currentcmd, set $COMMAND
     if [ -d "$hooksdir/$currentcmd" ]; then
         echo "$currentcmd"
         return
     fi
- 
+
     # If not found, look up command in git alias
     # This alias-proofs the git-wrapper, invoking pre and post commands based on the intended git command
     #     this means that $WRAP_CMDS should not include aliases
@@ -78,9 +80,6 @@ function get_command {
         # recurse
         get_command "$command"
     fi
-
-    # if nothing is found, nothing is assigned to $COMMAND
-    # to force an empty $COMMAND earlier, deliberately, add it to $IGNORE_CMDS
 }
 
 
