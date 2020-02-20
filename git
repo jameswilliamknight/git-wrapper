@@ -36,40 +36,53 @@ IGNORE_CMDS=("add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
           "commit-tree" "gc" "merge-one-file" "relink" "show-index" "write-tree")
 
 # Extract the command from a git command line
+# Echoes any command we want to wrap
 function get_command {
+    # `shift` past params which are git options
     for opt in "${GIT_OPTS[@]}"; do
-        if [ "$opt" != "${1%=*}" ]; then
-            continue
+	#
+	# if the current array element of GIT_OPTS doesn't match the first param without a `=value`
+	local first_param_name="${1%=*}"
+	if [ "$first_param_name" != "$opt" ]; then
+            continue # restart loop with next GIT_OPTS item
         fi
+	# The first param belongs to the GIT_OPTS collection.
         # Extra shift for 2 argument options
         if [ "-C" == "$1" ] || [ "-c" == "$1" ]; then
             shift
         fi
         shift
 
+	# if there are no more parameters, there is no command to get, just return.
         if [ "$1" == "" ]; then
             return
         fi
         break
     done
-
-    for cmd in "${WRAP_CMDS[@]}"; do
-        if [ "$cmd" == "$1" ]; then
-            echo "$1"
+    # with that out of the way, we're now scrutinizing the current command
+    local currentcmd="$1"
+    
+    # if the param is a command we want to wrap, echo it, return.
+    for wrapcmd in "${WRAP_CMDS[@]}"; do
+        if [ "$wrapcmd" == "$currentcmd" ]; then
+            echo "$currentcmd"
             return
         fi
     done
     
-    for cmd in "${IGNORE_CMDS[@]}"; do
-        if [ "$cmd" == "$1" ]; then
+    # abort if the param is anything we are ignoring.
+    for ignorecmd in "${IGNORE_CMDS[@]}"; do
+        if [ "$ignorecmd" == "$currentcmd" ]; then
             return
         fi
     done
  
     # If not found, look up command in git alias
-    local alias="$("$GIT" config -l | grep "alias."$1"=")"
+    local alias="$("$GIT" config -l | grep "alias."$currentcmd"=")"
     if [ "$alias" != "" ]; then
+	# remove prefix: everything before and including equals
         local command="${alias#*=}"
+	# recurse
         get_command "$command"
     fi
 }
