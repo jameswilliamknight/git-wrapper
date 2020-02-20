@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # Prefix for echo
 PRE="[git-wrapper]"
 
@@ -8,9 +10,11 @@ GIT_OPTS=("-C" "-c" "--help" "--version" "--exec-path" "--html-path" "--man-path
           "--bare" "--git-dir" "--work-tree" "--namespace")
 
 # Commands we want to wrap. Do not include aliases, use their root/intended git command instead.
-WRAP_CMDS=("commit" "checkout" "pull")
+WRAP_CMDS=("checkout")
 
-IGNORE_CMDS=("add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
+# add commands here to intentionally suppress wrapping
+IGNORE_CMDS=("commit" "pull"
+          "add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
           "add--interactive" "count-objects" "grep" "merge-recursive" "remote-ext" "stage"
           "am" "credential" "hash-object" "merge-resolve" "remote-fd" "stash"
           "annotate" "credential-cache" "help" "merge-subtree" "remote-ftp" "status"
@@ -94,29 +98,31 @@ function get_command {
     # to force an empty $COMMAND earlier, deliberately, add it to $IGNORE_CMDS
 }
 
-function pre_command {
-    case "$COMMAND" in
-        #commit) pre_commit "$@" ;;
-        wrapped_command) pre_x "$@" ;;
-    esac
+
+function run_commands {
+    sequence=$1
+    shift
+    local path="$WRAPHOOKS/$COMMAND/$sequence"
+    if [ ! -d "$path" ]; then
+        return
+    fi
+
+    # https://stackoverflow.com/a/23357277
+    mapfile -d $'\0' SCRIPTS < <(find "$path" -mindepth 1 -maxdepth 1 -name '*.sh' -type f -print0)
+
+    for script in "${SCRIPTS[@]}"; do
+        echo "(placeholder) running $sequence script: '$script'"
+        #eval "$script $@"
+        bash -c "$script $@"
+    done
 }
 
-function pre_x {
-    echo "pre_x"
+function pre_command {
+    run_commands "pre" "$@"
 }
 
 function post_command {
-    case $COMMAND in
-        wrapped_command) post_x "$@" ;;
-        #commit)     post_commit "$@";;
-        #pull)       post_checkout "$@";;
-        #merge)      post_checkout "$@";;
-        #checkout)   post_checkout "$@";;
-    esac
-}
-
-function post_x {
-    echo "post_x"
+    run_commands "post" "$@"
 }
 
 
@@ -129,11 +135,15 @@ if [ "$GIT" = "" ]; then
 fi
 #GIT=/usr/bin/git
 
+# get paths for dynamic loading
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+WRAPHOOKS="${DIR}/hooks"
+
 # Fetch the command if it is in the $WRAP_CMDS list
 # TODO Remove this global variable
 COMMAND="$(get_command "$@")"
 
-pre_command "$@"
+run_commands "pre" "$@"
 
 "$GIT" "$@"
 rc="$?"
@@ -141,4 +151,4 @@ if [ "$rc" != "0" ]; then
     exit "$rc"
 fi
 
-post_command "$@"
+run_commands "post" "$@"
