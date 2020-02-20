@@ -7,8 +7,9 @@ GIT_OPTS=("-C" "-c" "--help" "--version" "--exec-path" "--html-path" "--man-path
           "--info-path" "-p" "--paginate" "--no-pager" "--no-replace-objects"
           "--bare" "--git-dir" "--work-tree" "--namespace")
 
-# Commands we want to wrap
+# Commands we want to wrap. Do not include aliases, use their root/intended git command instead.
 WRAP_CMDS=("commit" "checkout" "pull")
+
 IGNORE_CMDS=("add" "config" "get-tar-commit-id" "merge-ours" "remote" "show-ref"
           "add--interactive" "count-objects" "grep" "merge-recursive" "remote-ext" "stage"
           "am" "credential" "hash-object" "merge-resolve" "remote-fd" "stash"
@@ -46,14 +47,14 @@ function get_command {
 	if [ "$first_param_name" != "$opt" ]; then
             continue # restart loop with next GIT_OPTS item
         fi
-	# The first param belongs to the GIT_OPTS collection.
+        # The first param belongs to the GIT_OPTS collection.
         # Extra shift for 2 argument options
         if [ "-C" == "$1" ] || [ "-c" == "$1" ]; then
             shift
         fi
         shift
 
-	# if there are no more parameters, there is no command to get, just return.
+        # if there are no more parameters, there is no command to get, just return.
         if [ "$1" == "" ]; then
             return
         fi
@@ -71,6 +72,7 @@ function get_command {
     done
     
     # abort if the param is anything we are ignoring.
+    # this is a blacklist to deliberately stop further processing, and force $COMMAND to be empty.
     for ignorecmd in "${IGNORE_CMDS[@]}"; do
         if [ "$ignorecmd" == "$currentcmd" ]; then
             return
@@ -78,140 +80,45 @@ function get_command {
     done
  
     # If not found, look up command in git alias
+    # This alias-proofs the git-wrapper, invoking pre and post commands based on the intended git command
+    #     this means that $WRAP_CMDS should not include aliases
     local alias="$("$GIT" config -l | grep "alias."$currentcmd"=")"
     if [ "$alias" != "" ]; then
-	# remove prefix: everything before and including equals
+        # remove prefix: everything before and including equals
         local command="${alias#*=}"
-	# recurse
+        # recurse
         get_command "$command"
     fi
+
+    # if nothing is found, nothing is assigned to $COMMAND
+    # to force an empty $COMMAND earlier, deliberately, add it to $IGNORE_CMDS
 }
 
 function pre_command {
     case "$COMMAND" in
-        commit) pre_commit "$@" ;;
+        #commit) pre_commit "$@" ;;
+        wrapped_command) pre_x "$@" ;;
     esac
 }
 
-function pre_commit {
-    if [ -n "${GIT_WRAPPER_NOPRECOMMIT}" ]; then
-        return
-    fi
-    
-    local branch_name="$("$GIT" symbolic-ref HEAD 2>/dev/null)"
-    if [ -z "$branch_name" ]; then
-        echo ""$PRE" ERROR: HEAD detached. You have to switch to a branch before you can commit."
-        echo ""$PRE"   (use \"git branch <branch-name>\")"
-        echo ""$PRE" Disable this check by setting GIT_WRAPPER_NOPRECOMMIT to a nonempty value."
-        exit 1
-    fi    
+function pre_x {
+    echo "pre_x"
 }
 
 function post_command {
     case $COMMAND in
-        commit)     post_commit "$@";;
-        pull)       post_checkout "$@";;
-        merge)      post_checkout "$@";;
-        checkout)   post_checkout "$@";;
+        wrapped_command) post_x "$@" ;;
+        #commit)     post_commit "$@";;
+        #pull)       post_checkout "$@";;
+        #merge)      post_checkout "$@";;
+        #checkout)   post_checkout "$@";;
     esac
 }
 
-function post_checkout {
-    if [ -n "${GIT_WRAPPER_NOPOSTCHECKOUT}" ]; then
-        return
-    fi
-    
-    local diff="$("$GIT" submodule status | grep ^\+)"
-    if [ "$diff" != "" ]; then
-        echo
-        echo ""$PRE" WARNING: One or more submodules do not match the SHA-1 found in the index"
-        echo ""$PRE"   (use \"git submodule update\" to checkout the submodules)"
-        echo ""$PRE" Disable this check by setting GIT_WRAPPER_NOPOSTCHECKOUT to a nonempty value."
-        return
-    fi
+function post_x {
+    echo "post_x"
 }
 
-function post_commit {
-    if [ -n "${GIT_WRAPPER_NOPOSTCOMMIT}" ]; then
-        return
-    fi
-	
-    local git_dir="$("$GIT" rev-parse --git-dir 2>/dev/null)"
-    if [ -z "$git_dir" ]; then
-        echo ""$PRE" ERROR: \"git rev-parse --git-dir\" failed!"
-        exit
-    fi  
-    
-    local submodule_name="$(basename "$git_dir")"
-    if [ "$submodule_name" == ".git" ]; then
-        return
-    fi
-
-    local parent_top="${git_dir%.git*}"
-    local parent_name="$(basename "$parent_top")"
-    local parent_branch="$("$GIT" -C "$parent_top" symbolic-ref --short HEAD 2>/dev/null)"
-    echo
-    echo ""$PRE" You just commited to the submodule: '"$submodule_name"'"
-    echo ""$PRE" Do you wish to update the parent repo to this commit?"
-    echo ""$PRE" name:   "$parent_name""
-    echo ""$PRE" branch: "$parent_branch""
-    echo ""$PRE" (set GIT_WRAPPER_NOPOSTCOMMIT to a nonempty value to never ask again)"
-    while true; do
-        read -p ""$PRE" This will require to push your changes first. [y/n] " yn
-        case $yn in
-            y ) push_submodule
-                commit_parent "$parent_top" "$submodule_name" "$git_dir"
-                push_parent "$parent_top"
-                break;;
-            n ) return;;
-            * ) echo "Please answer y or n.";;
-        esac
-    done
-}
-
-function push_submodule {
-    echo
-    echo ""$PRE" pushing submodule..."
-    local submodule_branch info
-    submodule_branch="$("$GIT" symbolic-ref --short HEAD 2>/dev/null)"
-    echo ""$PS4"git push origin "$submodule_branch""
-    set +e
-    info="$("$GIT" push origin "$submodule_branch" 2>&1)"
-    set -e
-    echo "$info"
-    if [ "${info#*error}" != "$info" ]; then
-        echo ""$PRE" ERROR: pushing submodule failed!"
-        echo ""$PRE" Try to manually push your changes."
-        exit 1
-    fi
-}
-
-function commit_parent {
-    echo
-    echo ""$PRE" commiting parent..."
-    local parent_top commit_message submodule_top
-    parent_top="$1"
-    commit_message="@"$2" "$("$GIT" log --pretty=format:'%s' | head -n1)""
-    submodule_top="${3#*modules/}"
-    echo ""$PS4"git -C "$parent_top" commit -m '"$commit_message"' -- "$submodule_top""
-    "$GIT" -C "$parent_top" commit -m "$commit_message" -- "$submodule_top"
-}
-
-function push_parent {
-    echo
-    echo ""$PRE" pushing parent..."
-    local parent_branch parent_top info
-    parent_top="$1"
-    parent_branch="$("$GIT" -C "$parent_top" symbolic-ref --short HEAD 2>/dev/null)"
-    echo ""$PS4"git -C "$parent_top" push origin "$parent_branch""
-    info="$("$GIT" -C "$parent_top" push origin "$parent_branch" 2>&1)"
-    echo "$info"
-    if [ "${info#*error}" != "$info" ]; then
-        echo ""$PRE" ERROR: pushing parent failed!"
-        echo ""$PRE" Try to manually push your changes."
-        exit 1
-    fi
-}
 
 # Assuming this script is called 'git', find the next available 'git' command
 # via 'which'. Override this if you want to hard-code a different path.
@@ -222,6 +129,7 @@ if [ "$GIT" = "" ]; then
 fi
 #GIT=/usr/bin/git
 
+# Fetch the command if it is in the $WRAP_CMDS list
 # TODO Remove this global variable
 COMMAND="$(get_command "$@")"
 
