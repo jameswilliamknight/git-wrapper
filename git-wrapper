@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# Summary
+#     A utility for settings git-wrapper configuration
+#
+# Usage
+#     --install    : adds this script's directory to $PATH in caller's .bashrc
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+if [ ! -z ${1+xxx} ] && [ $1 == "--install" ]; then
+    shift
+    script="${DIR}/scripts/add_to_path.sh"
+    bash -c "$script \"$DIR\""
+fi
+
